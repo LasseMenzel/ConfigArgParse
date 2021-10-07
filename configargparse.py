@@ -77,8 +77,8 @@ class ArgumentDefaultsRawHelpFormatter(
 class ConfigFileParser(object):
     """This abstract class can be extended to add support for new config file
     formats"""
-#    def __init__(self,sections=[]):
-#        self.sections = sections
+    def __init__(self,sections=[]):
+        self.sections = sections
 
     def get_syntax_description(self):
         """Returns a string describing the config file syntax."""
