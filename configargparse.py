@@ -25,9 +25,6 @@ ACTION_TYPES_THAT_DONT_NEED_A_VALUE = [argparse._StoreTrueAction,
 
 if sys.version_info >= (3, 9):
     ACTION_TYPES_THAT_DONT_NEED_A_VALUE.append(argparse.BooleanOptionalAction)
-    is_boolean_optional_action = lambda action: isinstance(action, argparse.BooleanOptionalAction)
-else:
-    is_boolean_optional_action = lambda action: False
 
 ACTION_TYPES_THAT_DONT_NEED_A_VALUE = tuple(ACTION_TYPES_THAT_DONT_NEED_A_VALUE)
 
@@ -80,6 +77,8 @@ class ArgumentDefaultsRawHelpFormatter(
 class ConfigFileParser(object):
     """This abstract class can be extended to add support for new config file
     formats"""
+#    def __init__(self,sections=[]):
+#        self.sections = sections
 
     def get_syntax_description(self):
         """Returns a string describing the config file syntax."""
@@ -206,6 +205,8 @@ class DefaultConfigFileParser(ConfigFileParser):
 class ConfigparserConfigFileParser(ConfigFileParser):
     """parses INI files using pythons configparser."""
 
+    def __init__(self,sections=[]):
+        self.sections = sections
     def get_syntax_description(self):
         msg = """Uses configparser module to parse an INI file which allows multi-line
         values.
@@ -218,8 +219,6 @@ class ConfigparserConfigFileParser(ConfigFileParser):
             empty_lines_in_values = False
 
         See https://docs.python.org/3/library/configparser.html for details.
-
-        Note: INI file sections names are still treated as comments.
         """
         return msg
 
@@ -241,21 +240,22 @@ class ConfigparserConfigFileParser(ConfigFileParser):
         except Exception as e:
             raise ConfigFileParserException("Couldn't parse config file: %s" % e)
 
-        # convert to dict and remove INI section names
+        # convert to dict 
         result = OrderedDict()
         for section in config.sections():
-            for k,v in config[section].items():
-                multiLine2SingleLine = v.replace('\n',' ').replace('\r',' ')
-                # handle special case for lists
-                if '[' in multiLine2SingleLine and ']' in multiLine2SingleLine:
-                    # ensure not a dict with a list value
-                    prelist_string = multiLine2SingleLine.split('[')[0]
-                    if '{' not in prelist_string:
-                        result[k] = literal_eval(multiLine2SingleLine)
+            if section in self.sections:
+                for k,v in config[section].items():
+                    multiLine2SingleLine = v.replace('\n',' ').replace('\r',' ')
+                    # handle special case for lists
+                    if '[' in multiLine2SingleLine and ']' in multiLine2SingleLine:
+                        # ensure not a dict with a list value
+                        prelist_string = multiLine2SingleLine.split('[')[0]
+                        if '{' not in prelist_string:
+                            result[k] = literal_eval(multiLine2SingleLine)
+                        else:
+                            result[k] = multiLine2SingleLine
                     else:
                         result[k] = multiLine2SingleLine
-                else:
-                    result[k] = multiLine2SingleLine
         return result
 
     def serialize(self, items):
@@ -385,6 +385,8 @@ class ArgumentParser(argparse.ArgumentParser):
             config_file_parser_class: configargparse.ConfigFileParser subclass
                 which determines the config file format. configargparse comes
                 with DefaultConfigFileParser and YAMLConfigFileParser.
+            config_file_sections: sections used from config files.
+                (eg. ["--config-file-sections"]). Default:[]
             args_for_setting_config_path: A list of one or more command line
                 args to be used for specifying the config file path
                 (eg. ["-c", "--config-file"]). Default: []
@@ -414,6 +416,7 @@ class ArgumentParser(argparse.ArgumentParser):
                                               DefaultConfigFileParser)
         args_for_setting_config_path = kwargs.pop(
             'args_for_setting_config_path', [])
+        config_file_sections = kwargs.pop('config_file_sections', [])
         config_arg_is_required = kwargs.pop('config_arg_is_required', False)
         config_arg_help_message = kwargs.pop('config_arg_help_message',
                                              "config file path")
@@ -433,10 +436,7 @@ class ArgumentParser(argparse.ArgumentParser):
         argparse.ArgumentParser.__init__(self, *args, **kwargs)
 
         # parse the additional args
-        if config_file_parser_class is None:
-            self._config_file_parser = DefaultConfigFileParser()
-        else:
-            self._config_file_parser = config_file_parser_class()
+        self._config_file_parser = config_file_parser_class(sections = config_file_sections)
 
         self._default_config_files = default_config_files
         self._ignore_unknown_config_file_keys = ignore_unknown_config_file_keys
@@ -461,7 +461,7 @@ class ArgumentParser(argparse.ArgumentParser):
             args: a list of args as in argparse, or a string (eg. "-x -y bla")
             config_file_contents: String. Used for testing.
             env_vars: Dictionary. Used for testing.
-
+        
         Returns:
             argparse.Namespace: namespace
         """
@@ -493,7 +493,7 @@ class ArgumentParser(argparse.ArgumentParser):
             env_vars (dict). Used for testing.
             ignore_help_args (bool): This flag determines behavior when user specifies ``--help`` or ``-h``. If False,
                 it will have the default behavior - printing help and exiting. If True, it won't do either.
-
+        
         Returns:
             tuple[argparse.Namespace, list[str]]: tuple namescpace, unknown_args
         """
@@ -711,7 +711,7 @@ class ArgumentParser(argparse.ArgumentParser):
 
         Args:
             key: The config file key that was being set.
-
+        
         Returns:
             str: command line key
         """
@@ -777,7 +777,7 @@ class ArgumentParser(argparse.ArgumentParser):
                 configargparse arg.
             key: string (config file key or env var name)
             value: parsed value of type string or list
-
+        
         Returns:
             list[str]: args
         """
@@ -787,24 +787,15 @@ class ArgumentParser(argparse.ArgumentParser):
             command_line_key = \
                 self.get_command_line_key_for_unknown_config_file_setting(key)
         else:
-            if not is_boolean_optional_action(action):
-                command_line_key = action.option_strings[-1]
+            command_line_key = action.option_strings[-1]
 
         # handle boolean value
         if action is not None and isinstance(action, ACTION_TYPES_THAT_DONT_NEED_A_VALUE):
             if value.lower() in ("true", "yes", "1"):
-                if not is_boolean_optional_action(action):
-                    args.append( command_line_key )
-                else:
-                    # --foo
-                    args.append(action.option_strings[0])
+                args.append( command_line_key )
             elif value.lower() in ("false", "no", "0"):
                 # don't append when set to "false" / "no"
-                if not is_boolean_optional_action(action):
-                    pass
-                else:
-                    # --no-foo
-                    args.append(action.option_strings[1])
+                pass
             elif isinstance(action, argparse._CountAction):
                 for arg in args:
                     if any([arg.startswith(s) for s in action.option_strings]):
