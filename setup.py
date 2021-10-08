@@ -81,11 +81,11 @@ tests_require = [
 
 setup(
     name='ConfigArgParse',
-    version="1.5.3",
+    version="1.5.3.1",
     description='A drop-in replacement for argparse that allows options to '
                 'also be set via config files and/or environment variables.',
     long_description=long_description,
-    url='https://github.com/bw2/ConfigArgParse',
+    url='https://github.com/LasseMenzel/ConfigArgParse',
     py_modules=['configargparse'],
     include_package_data=True,
     license="MIT",
